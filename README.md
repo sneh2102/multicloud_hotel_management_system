@@ -5,7 +5,8 @@ A modern hotel management system built on multi-cloud architecture, combining AW
 
 ![System Architecture](/architecture.png)  
 *Diagram illustrating the core system components and their relationships*
-
+ 
+ 
 ## Key Features
 - **Room Management**
   - Booking & cancellation system

@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Resources:
+  BookingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: BookingQueue.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false
+
+  BookingNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: BookingNotifications
+
+  BookingRequestLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: BookingRequestLambdaFunction
+      Handler: index.lambda_handler
+      Role: labrole
+      Code:
+        ZipFile: !Sub |
+          ${file(../backend/lambda_functions/booking_request_lambda.py)}
+      Runtime: python3.8
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref BookingQueue
+      Runtime: python3.8
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref BookingQueue
+
+  BookingValidationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: BookingValidation
+      Handler: index.lambda_handler
+      Role: labrole
+      Code:
+        ZipFile: !Sub |
+          ${file(../backend/lambda_functions/booking_validation_lambda.py)} S
+      Runtime: python3.8
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref BookingQueue
+          SNS_TOPIC_ARN: !Ref BookingNotificationsTopic
+      Events:
+        BookingQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !Ref BookingQueue
+
+  BookingValidationLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BookingValidationLambdaFunction
+      Principal: sqs.amazonaws.com
+      SourceArn: !GetAtt BookingQueue.Arn
+
+  BookingRequestLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BookingRequestLambdaFunction
+      Principal: sqs.amazonaws.com
+      SourceArn: !GetAtt BookingQueue.Arn
+
+Outputs:
+  BookingQueueUrl:
+    Description: URL of the Booking SQS Queue
+    Value: !Ref BookingQueue
+  BookingRequestLambdaFunction:
+    Description: ARN of the Booking Request Lambda Function
+    Value: !GetAtt BookingRequestLambdaFunction.Arn
+  BookingValidationLambdaFunction:
+    Description: ARN of the Check Availability Lambda Function
+    Value: !GetAtt BookingValidationLambdaFunction.Arn
+  BookingNotificationsTopic:
+    Description: ARN of the Booking Notifications SNS Topic
+    Value: !Ref BookingNotificationsTopic

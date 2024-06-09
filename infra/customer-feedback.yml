@@ -1,0 +1,311 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  # Defining the feedback lambda role
+  FeedbackLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - "lambda.amazonaws.com"
+                - "apigateway.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "arn:aws:logs:*:*:*"
+              - Effect: Allow
+                Action:
+                  - "dynamodb:*"
+                Resource: "arn:aws:dynamodb:*:*:table/*"
+              - Effect: Allow
+                Action:
+                  - "lambda:InvokeFunction"
+                Resource: "arn:aws:lambda:*:*:function:*"
+
+  # Defining the feedback table
+  FeedbackTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: Feedback
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  # Defining the store feedback lambda function
+  StoreFeedbackWithSentimentLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: "index.handler"
+      Role: !GetAtt FeedbackLambdaRole.Arn
+      Code:
+        S3Bucket: "lambda-fun-bucket-g9"
+        S3Key: "Feedback.zip"
+      Runtime: "nodejs16.x"
+    DependsOn: FeedbackLambdaRole
+
+  # Defining the fetch feedback lambda function
+  FetchFeedbackWithSentimentLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: "index.handler"
+      Role: !GetAtt FeedbackLambdaRole.Arn
+      Code:
+        S3Bucket: "lambda-fun-bucket-g9"
+        S3Key: "FetchFeedbackLambda.zip"
+      Runtime: "nodejs16.x"
+    DependsOn: FeedbackLambdaRole
+  
+  # Defining the api gateway
+  ApiGatewayRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: FeedbackApi
+  
+  BookingResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+      PathPart: booking
+      RestApiId: !Ref ApiGatewayRestApi
+
+  BookingOptionsMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: 'OPTIONS'
+      ResourceId: !Ref BookingResource
+      RestApiId: !Ref ApiGatewayRestApi
+      Integration:
+        IntegrationHttpMethod: 'OPTIONS'
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+          ResponseModels:
+            application/json: Empty
+    DependsOn: BookingResource
+
+  StoreFeedbackResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      ParentId: !Ref BookingResource
+      PathPart: 'store-feedback'
+      RestApiId: !Ref ApiGatewayRestApi
+
+  StoreFeedbackOptionsMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: 'OPTIONS'
+      ResourceId: !Ref StoreFeedbackResource
+      RestApiId: !Ref ApiGatewayRestApi
+      Integration:
+        # IntegrationHttpMethod: 'OPTIONS'
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+          ResponseModels:
+            application/json: Empty
+    DependsOn: StoreFeedbackResource
+  
+  StoreFeedbackApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId: !Ref StoreFeedbackResource
+      RestApiId: !Ref ApiGatewayRestApi
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${StoreFeedbackWithSentimentLambdaFunction.Arn}/invocations'
+        # IntegrationResponses:
+        #   - StatusCode: 200
+        #     ResponseParameters:
+        #       method.response.header.Access-Control-Allow-Origin: "'*'"
+        #     ResponseTemplates:
+        #       application/json: $input.json('$')
+      MethodResponses:
+        - StatusCode: 200
+          # ResponseParameters: 
+          #   method.response.header.Access-Control-Allow-Origin: true
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: StoreFeedbackWithSentimentLambdaFunction
+
+  RoomManagementResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+      PathPart: 'room-management'
+      RestApiId: !Ref ApiGatewayRestApi
+    
+  RoomManagementOptionsMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: 'OPTIONS'
+      ResourceId: !Ref RoomManagementResource
+      RestApiId: !Ref ApiGatewayRestApi
+      Integration:
+        IntegrationHttpMethod: 'OPTIONS'
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+          ResponseModels:
+            application/json: Empty
+    DependsOn: RoomManagementResource
+
+  FetchFeedbackResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      ParentId: !Ref RoomManagementResource
+      PathPart: 'fetch-feedback'
+      RestApiId: !Ref ApiGatewayRestApi
+  
+  FetchFeedbackOptionsMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: 'OPTIONS'
+      ResourceId: !Ref FetchFeedbackResource
+      RestApiId: !Ref ApiGatewayRestApi
+      Integration:
+        IntegrationHttpMethod: 'OPTIONS'
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+          ResponseModels:
+            application/json: Empty
+    DependsOn: FetchFeedbackResource
+
+  FetchFeedbackApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId: !Ref FetchFeedbackResource
+      RestApiId: !Ref ApiGatewayRestApi
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FetchFeedbackWithSentimentLambdaFunction.Arn}/invocations'
+        # IntegrationResponses:
+        #   - StatusCode: 200
+        #     ResponseParameters:
+        #       method.response.header.Access-Control-Allow-Origin: "'*'"
+        #     ResponseTemplates:
+        #       application/json: $input.json('$')
+      MethodResponses:
+        - StatusCode: 200
+          # ResponseParameters: 
+          #   method.response.header.Access-Control-Allow-Origin: true
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: StoreFeedbackWithSentimentLambdaFunction
+  
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: [BookingOptionsMethod, StoreFeedbackOptionsMethod, StoreFeedbackApiMethod, RoomManagementOptionsMethod, FetchFeedbackOptionsMethod, FetchFeedbackApiMethod]
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+  
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    DependsOn: ApiDeployment
+    Properties:
+      StageName: dev
+      RestApiId: !Ref ApiGatewayRestApi
+      DeploymentId: !Ref ApiDeployment
+
+  StoreFeedbackLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt StoreFeedbackWithSentimentLambdaFunction.Arn
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/*/*"
+
+  FetchFeedbackLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt FetchFeedbackWithSentimentLambdaFunction.Arn
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/*/*"
+
+
+Outputs:
+  FeedbackTableName:
+    Description: Name of the Feedback DynamoDB Table
+    Value: !Ref FeedbackTable
+
+  StoreFeedbackLambdaFunctionArn:
+    Description: "ARN of the Store Feedback With Sentiment Lambda function"
+    Value: !GetAtt StoreFeedbackWithSentimentLambdaFunction.Arn
+  
+  FetchFeedbackLambdaFunctionArn:
+    Description: "ARN of the Fetch Feedback With Sentiment Lambda function"
+    Value: !GetAtt FetchFeedbackWithSentimentLambdaFunction.Arn
+
+  ApiGatewayUrl:
+    Description: URL of the API Gateway
+    Value: !Sub "https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}/"

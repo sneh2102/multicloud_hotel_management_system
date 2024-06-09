@@ -1,0 +1,520 @@
+Resources:
+  # Defining the lambda role
+  BotLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "arn:aws:logs:*:*:*"
+              - Effect: Allow
+                Action:
+                  - "dynamodb:GetItem"
+                Resource: "arn:aws:dynamodb:*:*:table/*"
+  
+  # Defining the lambda function
+  BotLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: "index.handler"
+      Role: !GetAtt BotLambdaRole.Arn
+      Code:
+        S3Bucket: "lambda-fun-bucket-g9"
+        S3Key: "FetchBookingDetails.zip"
+      Runtime: "nodejs16.x"
+    DependsOn: BotLambdaRole
+
+  # Defining the bot role
+  BotRuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "lexv2.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: LexBotPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "polly:SynthesizeSpeech"
+                  - "comprehend:DetectSentiment"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "lex:StartConversation"
+                  - "lex:RecognizeText"
+                  - "lex:RecognizeUtterance"
+                  - "lex:GetSession"
+                  - "lex:PutSession"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "lambda:InvokeFunction"
+                Resource: !GetAtt BotLambdaFunction.Arn
+
+  # Defining the bot
+  VirtualAssistantTemplateBot:
+    DependsOn: BotRuntimeRole
+    Type: AWS::Lex::Bot
+    Properties:
+      Name: VirtualAssistantCFN
+      DataPrivacy:
+        ChildDirected: false
+      Description: It helps to navigate within site and get booking information using CloudFormation Custom Resource
+      IdleSessionTTLInSeconds: 300
+      RoleArn: !GetAtt BotRuntimeRole.Arn
+      AutoBuildBotLocales: false
+      BotLocales:
+        - LocaleId: "en_US"
+          Description: "Virtual Assistant bot Locale"
+          NluConfidenceThreshold: 0.40
+          Intents:
+            - Name: "InitialConversation"
+              Description: "This intent will help users for initial conversation."
+              SampleUtterances:
+                - Utterance: "Hello"
+                - Utterance: "Hi"
+                - Utterance: "Hey"
+                - Utterance: "Hi there"
+                - Utterance: "Hello there"
+                - Utterance: "Hey there"
+                - Utterance: "Greetings"
+                - Utterance: "Hi bot"
+                - Utterance: "Hello, bot"
+              IntentClosingSetting:
+                ClosingResponse:
+                  MessageGroupsList:
+                    - Message:
+                        PlainTextMessage:
+                          Value: "Hello, How may I help you?"
+            - Name: "Registration"
+              Description: "This intent will help users to help them in registration process."
+              SampleUtterances:
+                - Utterance: "I want to register."
+                - Utterance: "Let me register."
+                - Utterance: "Show me how to sign up."
+                - Utterance: "Guide me through the registration process."
+                - Utterance: "How do I sign up?"
+                - Utterance: "Can you help me sign up?"
+                - Utterance: "Registration"
+              IntentClosingSetting:
+                ClosingResponse:
+                  MessageGroupsList:
+                    - Message:
+                        PlainTextMessage:
+                          Value: "For the registration, first you have to provide your details with your username and password and you have to provide answers of the security questions. Also provide the key for the caesar cipher. Visit this url for the registration: https://serverless-frontend-4azfhg4pfa-uc.a.run.app/signup"
+            - Name: "Login"
+              Description: "This intent will help users to help them in login process."
+              SampleUtterances:
+                - Utterance: "login"
+                - Utterance: "I want to login."
+                - Utterance: "I want to log in."
+                - Utterance: "Let me log in."
+                - Utterance: "Show me how to sign in."
+                - Utterance: "Guide me through the login process."
+                - Utterance: "How do I sign in?"
+                - Utterance: "How do I log in?"
+                - Utterance: "Can you help me sign in?"
+                - Utterance: "Can you help me log in?"
+              IntentClosingSetting:
+                ClosingResponse:
+                  MessageGroupsList:
+                    - Message:
+                        PlainTextMessage:
+                          Value: "For the login, first you have to provide your username and password and you have to provide answers of the security questions. Also provide the cipher text for given text while login. Visit this url for the login: https://serverless-frontend-4azfhg4pfa-uc.a.run.app/login"
+            - Name: "BookingHistory"
+              Description: "This intent will help users to see previous bookings."
+              SampleUtterances:
+                - Utterance: "Show me my bookings."
+                - Utterance: "Where can I see my bookings?"
+                - Utterance: "Let me view my bookings."
+                - Utterance: "Can you show me my bookings?"
+                - Utterance: "How do I check my bookings?"
+                - Utterance: "Guide me to my bookings."
+                - Utterance: "I want to see my bookings."
+                - Utterance: "Where are my bookings listed?"
+                - Utterance: "Help me find my bookings."
+                - Utterance: "Display my bookings."
+                - Utterance: "Can you navigate me to my bookings?"
+                - Utterance: "Tell me how to find my bookings."
+                - Utterance: "Where can I find my bookings?"
+                - Utterance: "How do I access my bookings?"
+                - Utterance: "Show my booking history."
+              IntentClosingSetting:
+                ClosingResponse:
+                  MessageGroupsList:
+                    - Message:
+                        PlainTextMessage:
+                          Value: "To get previous bookings, first you need to signup or login into the system."
+            - Name: "BookingInfo"
+              Description: "This intent will help users to fetch booking details."
+              SampleUtterances:
+                - Utterance: "I want to check my booking"
+                - Utterance: "Can you find my booking details?"
+                - Utterance: "Show me the room number and stay duration for my booking"
+                - Utterance: "I need my booking details"
+                - Utterance: "Retrieve my booking information"
+                - Utterance: "Find my room number and stay duration"
+                - Utterance: "Show my booking details"
+                - Utterance: "What is my room number and stay duration?"
+                - Utterance: "I need to check my booking"
+                - Utterance: "What room number is assigned to my booking?"
+                - Utterance: "How long is my stay?"
+                - Utterance: "Check my room number and duration of stay"
+                - Utterance: "Find out my room number and how long I'm staying"
+                - Utterance: "Tell me the room number and duration of my booking"
+                - Utterance: "Tell me my room and duration of stay."
+              IntentClosingSetting:
+                ClosingResponse:
+                  MessageGroupsList:
+                    - Message:
+                        PlainTextMessage:
+                          Value: "To get booking information, first you need to signup or login into the system."
+            - Name: "FallbackIntent"
+              Description: "Default intent when no other intent matches"
+              ParentIntentSignature: "AMAZON.FallbackIntent"
+  
+  # Defining versions and aliases for the bot
+  VirtualAssistantBotVersionWithCFN:
+    DependsOn: VirtualAssistantTemplateBot
+    Type: AWS::Lex::BotVersion
+    Properties:
+      BotId: !Ref VirtualAssistantTemplateBot
+      BotVersionLocaleSpecification:
+        - LocaleId: "en_US"
+          BotVersionLocaleDetails:
+            SourceBotVersion: "DRAFT"
+      Description: "VirtualAssistant Version"
+
+  # Defining the bot for authenticated users
+  VirtualAssistantForAuthenticatedUsersTemplateBot:
+    DependsOn: 
+      - BotRuntimeRole
+      - BotLambdaFunction
+    Type: AWS::Lex::Bot
+    Properties:
+      Name: VirtualAssistantForAuthenticatedUsersCFN
+      DataPrivacy:
+        ChildDirected: false
+      Description: "It helps to navigate within site and get booking information using CloudFormation Custom Resource"
+      IdleSessionTTLInSeconds: 300
+      RoleArn: !GetAtt BotRuntimeRole.Arn
+      AutoBuildBotLocales: false
+      BotLocales:
+        - LocaleId: "en_US"
+          Description: "Virtual Assistant bot Locale"
+          NluConfidenceThreshold: 0.40
+          Intents:
+            - Name: "InitialConversation"
+              Description: "This intent will help users for initial conversation."
+              SampleUtterances:
+                - Utterance: "Hello"
+                - Utterance: "Hi"
+                - Utterance: "Hey"
+                - Utterance: "Hi there"
+                - Utterance: "Hello there"
+                - Utterance: "Hey there"
+                - Utterance: "Greetings"
+                - Utterance: "Hi bot"
+                - Utterance: "Hello, bot"
+              IntentClosingSetting:
+                ClosingResponse:
+                  MessageGroupsList:
+                    - Message:
+                        PlainTextMessage:
+                          Value: "Hello, How may I help you?"
+            
+            - Name: "Registration"
+              Description: "This intent will help users to help them in registration process."
+              SampleUtterances:
+                - Utterance: "I want to register."
+                - Utterance: "Let me register."
+                - Utterance: "Show me how to sign up."
+                - Utterance: "Guide me through the registration process."
+                - Utterance: "How do I sign up?"
+                - Utterance: "Can you help me sign up?"
+                - Utterance: "Registration"
+              IntentClosingSetting:
+                ClosingResponse:
+                  MessageGroupsList:
+                    - Message:
+                        PlainTextMessage:
+                          Value: "For the registration, first you have to provide your details with your username and password and you have to provide answers of the security questions. Also provide the key for the caesar cipher. Visit this url for the registration: https://serverless-frontend-4azfhg4pfa-uc.a.run.app/signup"
+            
+            - Name: "Login"
+              Description: "This intent will help users to help them in login process."
+              SampleUtterances:
+                - Utterance: "login"
+                - Utterance: "I want to login."
+                - Utterance: "I want to log in."
+                - Utterance: "Let me log in."
+                - Utterance: "Show me how to sign in."
+                - Utterance: "Guide me through the login process."
+                - Utterance: "How do I sign in?"
+                - Utterance: "How do I log in?"
+                - Utterance: "Can you help me sign in?"
+                - Utterance: "Can you help me log in?"
+              IntentClosingSetting:
+                ClosingResponse:
+                  MessageGroupsList:
+                    - Message:
+                        PlainTextMessage:
+                          Value: "For the login, first you have to provide your username and password and you have to provide answers of the security questions. Also provide the cipher text for given text while login. Visit this url for the login: https://serverless-frontend-4azfhg4pfa-uc.a.run.app/login"
+            
+            - Name: "BookingHistory"
+              Description: "This intent will help users to see previous bookings."
+              SampleUtterances:
+                - Utterance: "Show me my bookings."
+                - Utterance: "Where can I see my bookings?"
+                - Utterance: "Let me view my bookings."
+                - Utterance: "Can you show me my bookings?"
+                - Utterance: "How do I check my bookings?"
+                - Utterance: "Guide me to my bookings."
+                - Utterance: "I want to see my bookings."
+                - Utterance: "Where are my bookings listed?"
+                - Utterance: "Help me find my bookings."
+                - Utterance: "Display my bookings."
+                - Utterance: "Can you navigate me to my bookings?"
+                - Utterance: "Tell me how to find my bookings."
+                - Utterance: "Where can I find my bookings?"
+                - Utterance: "How do I access my bookings?"
+                - Utterance: "Show my booking history."
+              IntentClosingSetting:
+                ClosingResponse:
+                  MessageGroupsList:
+                    - Message:
+                        PlainTextMessage:
+                          Value: "To get previous bookings, go to this URL."
+            
+            - Name: "BookingInfo"
+              Description: "This intent will help users to fetch booking details."
+              SampleUtterances:
+                - Utterance: "I want to check my booking"
+                - Utterance: "Can you find my booking details?"
+                - Utterance: "Show me the room number and stay duration for my booking"
+                - Utterance: "I need my booking details"
+                - Utterance: "Retrieve my booking information"
+                - Utterance: "Find my room number and stay duration"
+                - Utterance: "Show my booking details"
+                - Utterance: "What is my room number and stay duration?"
+                - Utterance: "I need to check my booking"
+                - Utterance: "What room number is assigned to my booking?"
+                - Utterance: "How long is my stay?"
+                - Utterance: "Check my room number and duration of stay"
+                - Utterance: "Find out my room number and how long I'm staying"
+                - Utterance: "Tell me the room number and duration of my booking"
+                - Utterance: "Tell me my room and duration of stay."
+              IntentConfirmationSetting:
+                PromptSpecification:
+                  MessageGroupsList:
+                    - Message:
+                        PlainTextMessage:
+                          Value: "I will fetch the room number and stay duration for the booking reference code {BookingReferenceCode}. Is that correct?"
+                  MaxRetries: 3
+                  AllowInterrupt: false
+                DeclinationResponse:
+                  MessageGroupsList:
+                    - Message:
+                        PlainTextMessage:
+                          Value: "I'm sorry about that. Would you like to provide a new booking reference code?"
+                  AllowInterrupt: false
+              SlotPriorities:
+                - Priority: 1
+                  SlotName: BookingReferenceCode
+              Slots:
+                - Name: "BookingReferenceCode"
+                  Description: "Get Booking Reference Code"
+                  SlotTypeName: "AMAZON.AlphaNumeric"
+                  ValueElicitationSetting:
+                    SlotConstraint: "Required"
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: "Please provide your booking reference code."
+                      MaxRetries: 3
+                      AllowInterrupt: false
+              FulfillmentCodeHook:
+                Enabled: true
+                FulfillmentUpdatesSpecification:
+                  Active: true
+                  StartResponse:
+                    DelayInSeconds: 1
+                    MessageGroups:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Processing your request..."
+                  UpdateResponse:
+                    FrequencyInSeconds: 60
+                    MessageGroups:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Still working on your request..."
+                  TimeoutInSeconds: 180
+                PostFulfillmentStatusSpecification:
+                  SuccessResponse:
+                    MessageGroupsList:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Successfully fetched your booking details!"
+                  FailureResponse:
+                    MessageGroupsList:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Failed to fetch details. Please try again."
+                  TimeoutResponse:
+                    MessageGroupsList:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Request timed out. Please try again later."
+
+            - Name: "CustomerConcern"
+              Description: "This intent will help users to raise concern."
+              SampleUtterances:
+                - Utterance: "I have a problem with my booking."
+                - Utterance: "Can someone help me with my reservation?"
+                - Utterance: "I need to change my room booking."
+                - Utterance: "There's an issue with my booking confirmation."
+                - Utterance: "I want to speak to customer support about my reservation."
+                - Utterance: "How do I cancel my room booking?"
+                - Utterance: "I'm having trouble booking a room."
+                - Utterance: "My booking details are incorrect."
+                - Utterance: "I need help with an overcharge on my booking."
+                - Utterance: "Who can I talk to about a mistake in my booking?"
+                - Utterance: "I have a concern with my booking."
+                - Utterance: "Can someone help me with my reservation concern?"
+                - Utterance: "I have a concern about changing my room booking."
+                - Utterance: "There's a concern with my booking confirmation."
+                - Utterance: "I want to speak to customer support about a concern with my reservation."
+                - Utterance: "How do I address a concern regarding canceling my room booking?"
+                - Utterance: "I'm having a concern with booking a room."
+                - Utterance: "My booking details have a concern."
+                - Utterance: "I need help with a concern about an overcharge on my booking."
+                - Utterance: "Who can I talk to about a concern with my booking?"
+                
+              SlotPriorities:
+                - Priority: 1
+                  SlotName: Message
+                - Priority: 2
+                  SlotName: BookingId
+                - Priority: 3
+                  SlotName: Email
+              Slots:
+                - Name: "Message"
+                  Description: "Get Concern message"
+                  SlotTypeName: "AMAZON.AlphaNumeric"
+                  ValueElicitationSetting:
+                    SlotConstraint: "Required"
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: "Please provide your concern message."
+                      MaxRetries: 3
+                      AllowInterrupt: false
+                - Name: "BookingId"
+                  Description: "Get Booking Id"
+                  SlotTypeName: "AMAZON.AlphaNumeric"
+                  ValueElicitationSetting:
+                    SlotConstraint: "Required"
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: "Please provide your Booking Id."
+                      MaxRetries: 3
+                      AllowInterrupt: false
+                - Name: "Email"
+                  Description: "Get Customer Email Id"
+                  SlotTypeName: "AMAZON.EmailAddress"
+                  ValueElicitationSetting:
+                    SlotConstraint: "Required"
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: "Please provide your Email address."
+                      MaxRetries: 3
+                      AllowInterrupt: false
+              FulfillmentCodeHook:
+                Enabled: true
+                FulfillmentUpdatesSpecification:
+                  Active: true
+                  StartResponse:
+                    DelayInSeconds: 1
+                    MessageGroups:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Processing your request..."
+                  UpdateResponse:
+                    FrequencyInSeconds: 60
+                    MessageGroups:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Still working on your request..."
+                  TimeoutInSeconds: 180
+                PostFulfillmentStatusSpecification:
+                  SuccessResponse:
+                    MessageGroupsList:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Successfully fetched your booking details!"
+                  FailureResponse:
+                    MessageGroupsList:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Failed to fetch details. Please try again."
+                  TimeoutResponse:
+                    MessageGroupsList:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Request timed out. Please try again later."
+            
+            - Name: "FallbackIntent"
+              Description: "Default intent when no other intent matches"
+              ParentIntentSignature: "AMAZON.FallbackIntent"
+
+  # Defining versions and aliases for the bot
+  VirtualAssistantForAuthenticatedUsersBotVersionWithCFN:
+    DependsOn: VirtualAssistantForAuthenticatedUsersTemplateBot
+    Type: AWS::Lex::BotVersion
+    Properties:
+      BotId: !Ref VirtualAssistantForAuthenticatedUsersTemplateBot
+      BotVersionLocaleSpecification:
+        - LocaleId: "en_US"
+          BotVersionLocaleDetails:
+            SourceBotVersion: "DRAFT"
+      Description: "VirtualAssistant For Authenticated Users Version"
+
+Outputs:
+  LambdaFunctionArn:
+    Description: "ARN of the Lambda function"
+    Value: !GetAtt BotLambdaFunction.Arn
+
+  LexBotArn:
+    Description: "ARN of the Lex Bot for Authenticated Users"
+    Value: !GetAtt VirtualAssistantTemplateBot.Arn
+
+  LexBotAuthenticatedArn:
+    Description: "ARN of the Lex Bot for Authenticated Users"
+    Value: !GetAtt VirtualAssistantForAuthenticatedUsersTemplateBot.Arn

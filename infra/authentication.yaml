@@ -1,0 +1,815 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a Cognito User Pool, Lambda functions, DynamoDB tables, and API Gateway
+
+Resources:
+  #-----------------------------Cognito--------------------------#
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: dalvacationuserpool
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email      
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_LINK
+        EmailMessageByLink: 'Click the Verify Email link to verify your email address to Sign Up for Dalvacation. {##Verify Email##}'
+      Schema:
+        - Name: email
+          Required: true
+        - Name: name
+          Required: true
+          Mutable: true
+
+  CognitoUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: dalvacation1
+      UserPoolId: !Ref CognitoUserPool
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: testuserclient1
+      UserPoolId: !Ref CognitoUserPool
+
+# -----------------------------Lambda--------------------------#
+
+  AddUserFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: postUser
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Role: arn:aws:iam::381492004483:role/LabRole
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from datetime import datetime
+          import random
+
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('user')
+
+          def lambda_handler(event, context):
+              try:
+                  name = event['name']
+                  email =event['email']
+                  role = event['role']
+                  ques = event['queId']
+
+                  item = {
+                      'userId': random.randint(100000, 999999),
+                      'name': name,
+                      'email': email,
+                      'queId': ques,
+                      'createdAt': datetime.utcnow().isoformat(),
+                      'role': role,
+                  }
+                  print(item)
+
+                  table.put_item(Item=item)
+
+                  response = {
+                      'statusCode': 200,
+                      'body': {
+                          "message": 'User details added successfully',
+                      }
+                  }
+                  return response
+
+              except Exception as e:
+                  print(e)
+                  response = {
+                      'statusCode': 500,
+                      'body': json.dumps({
+                          'message': 'Failed to add user details',
+                          'error': str(e)
+                      })
+                  }
+                  return response
+
+  GetUserFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: getUser
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Role: arn:aws:iam::381492004483:role/LabRole
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from decimal import Decimal
+          import time
+
+          # Initialize DynamoDB resource
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('user')
+
+          def decimal_to_int(d):
+              if isinstance(d, Decimal):
+                  return int(d)
+              raise TypeError("Not a Decimal instance")
+
+          def decimal_to_dict(d):
+              if isinstance(d, list):
+                  return [decimal_to_dict(i) for i in d]
+              elif isinstance(d, dict):
+                  return {k: decimal_to_dict(v) for k, v in d.items()}
+              elif isinstance(d, Decimal):
+                  return decimal_to_int(d)
+              else:
+                  return d
+
+          def lambda_handler(event, context):
+              # Get email from query parameters
+              email = event.get('queryStringParameters', {}).get('email', '')
+              print(email)
+              
+              try:
+                  
+                  current_date_time = time.strftime("%m/%d/%y %H:%M:%S", time.gmtime())
+                  # Update the lastActive field with the current time
+                  table.update_item(
+                      Key={"email": email},
+                      UpdateExpression="SET lastActive = :val",
+                      ExpressionAttributeValues={":val": current_date_time}
+                  )
+                  # Retrieve item from DynamoDB table using email as the key
+                  response = table.get_item(Key={"email": email})
+                  print(response)
+                  
+                  # Extract the item from the response
+                  item = response.get('Item', {})
+                  print(item)
+                  
+                  
+                  # Convert Decimal values to int
+                  item = decimal_to_dict(item)
+
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                              'Access-Control-Allow-Origin': '*',
+                              'Content-Type': 'application/json'
+                          },
+                      'body': json.dumps(item)  # Convert dictionary to JSON string
+                  }
+
+              except Exception as e:
+                  print(e)
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({
+                          'message': 'Failed to fetch items from DynamoDB',
+                          'error': str(e)
+                      })
+                  }
+
+  GetSecqueFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: getSecQue
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Role: arn:aws:iam::381492004483:role/LabRole
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('security-question') 
+
+          def lambda_handler(event, context):
+              try:
+                  response = table.scan()
+                  items = response['Items']
+
+                  return {
+                      'statusCode': 200,
+                      'body': items
+                  }
+
+              except Exception as e:
+                  print(e)
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps('Failed to fetch items from DynamoDB')
+                  }
+
+  GetOneSecQueFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: getOneSecQue
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Role: arn:aws:iam::381492004483:role/LabRole
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('security-question')  
+
+          def lambda_handler(event, context):
+              id = event.get('queryStringParameters', {}).get('id', '')
+              print(id, " hiii")
+              
+              try:
+                  int_id = int(id)
+                  
+                  response = table.get_item(Key={"quesId": int_id})
+                  print(response)
+                  
+                  if 'Item' in response:
+                      item = response['Item']
+                  else:
+                      return {
+                          'statusCode': 404,
+                          'headers': {
+                              'Access-Control-Allow-Origin': '*',
+                              'Content-Type': 'application/json'
+                          },
+                          'body': json.dumps({
+                              'message': 'Item not found'
+                          })
+                      }
+
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                          'Access-Control-Allow-Origin': '*',
+                          'Content-Type': 'application/json'
+                      },
+                      'body': json.dumps(item, default=str)  # Use default=str to handle non-serializable types
+                  }
+
+              except ValueError:
+                  return {
+                      'statusCode': 400,
+                      'headers': {
+                          'Access-Control-Allow-Origin': '*',
+                          'Content-Type': 'application/json'
+                      },
+                      'body': json.dumps({
+                          'message': 'Invalid id format'
+                      })
+                  }
+              except Exception as e:
+                  print(e)
+                  return {
+                      'statusCode': 500,
+                      'headers': {
+                          'Access-Control-Allow-Origin': '*',
+                          'Content-Type': 'application/json'
+                      },
+                      'body': json.dumps({
+                          'message': 'Failed to fetch items from DynamoDB',
+                          'error': str(e)
+                      })
+                  }
+
+  CheckAnswerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: checkAnswer
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Role: arn:aws:iam::381492004483:role/LabRole
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from decimal import Decimal
+
+          dynamodb = boto3.resource('dynamodb')
+          ansTable = dynamodb.Table('answers')
+
+          def caesar_cipher_decrypt(cipher_text, key):
+              decrypted_text = ""
+              
+              for char in cipher_text:
+                  if char.isalpha():
+                      shift = 65 if char is.upper() else 97
+                      decrypted_text += chr((ord(char) - shift - key) % 26 + shift)
+                  else:
+                      decrypted_text += char
+              return decrypted_text
+
+          def lambda_handler(event, context):
+              try:
+                  queId = int(event['queId'])
+                  cipher_text = event['cipher_text']
+                  answer = event['answer']
+                  dText = event['decrypted_text']
+                  email = event['email']
+                  
+                  print(queId, cipher_text, answer, dText, email)
+                  
+                  result = ansTable.get_item(Key={'email': email})
+                  item = result['Item']
+                  
+                  realAnswers = item['queAns']
+                  key = int(item['key']) 
+                  
+                  print(realAnswers, key)
+                  # Filter the answer that matches the queId
+                  filtered_answer = next((ans for ans in realAnswers if ans['queId'] == queId))
+                          
+                  if not filtered_answer:
+                      return {
+                          'statusCode': 404,
+                          'headers': {
+                              'Access-Control-Allow-Origin': '*',
+                              'Content-Type': 'application/json'
+                          },
+                          'body': json.dumps({'message': 'Question not found'})
+                      }
+                  
+                  realAns = filtered_answer['answer']
+                  
+                  # Decrypt the stored answer
+                  decrypted_answer = caesar_cipher_decrypt(cipher_text, key)
+                  
+                  print("decrypted_text:", decrypted_answer, " provided decrypted_text:", dText)
+                  print("answer:", answer, " realAns:", realAns)
+                  # Compare decrypted answer with provided decrypted text and also 
+                  # compare the provided answer with the stored answer
+                  if decrypted_answer == dText and answer == realAns:
+                      return {
+                          'statusCode': 200,
+                          'headers': {
+                              'Access-Control-Allow-Origin': '*',
+                              'Content-Type': 'application/json'
+                          },
+                          'body': json.dumps({'message': 'Success'})
+                      }
+                  else:
+                      return {
+                          'statusCode': 403,
+                          'headers': {
+                              'Access-Control-Allow-Origin': '*',
+                              'Content-Type': 'application/json'
+                          },
+                          'body': json.dumps({'message': 'Answer is incorrect'})
+                      }
+              except Exception as err:
+                  print('Error retrieving item:', err)
+                  
+                  return {
+                      'statusCode': 500,
+                      'headers': {
+                          'Access-Control-Allow-Origin': '*',
+                          'Content-Type': 'application/json'
+                      },
+                      'body': json.dumps({
+                          'message': 'Error retrieving item',
+                          'error': str(err)
+                      })
+                  }
+
+  PostAnswerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: postAnswer
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Role: arn:aws:iam::381492004483:role/LabRole
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('answers')
+
+          def lambda_handler(event, context):
+              email = event['email']
+              quesAnswers = event['queAns']
+              key = event['key']
+              items = {
+                  "email": email,
+                  "queAns": quesAnswers,
+                  "key": key
+              }
+              
+              response = table.put_item(Item=items)
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps("Success")
+              }
+
+# -----------------------------DynamoDB--------------------------#
+
+  UserTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: user
+      AttributeDefinitions:   
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      OnDemandThroughput:
+        MaxReadRequestUnits: 5
+        MaxWriteRequestUnits: 5
+
+  QuestionTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: security-question
+      AttributeDefinitions:   
+        - AttributeName: quesId
+          AttributeType: N
+      KeySchema:
+        - AttributeName: quesId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      OnDemandThroughput:
+        MaxReadRequestUnits: 5
+        MaxWriteRequestUnits: 5
+
+  AnswersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: answers
+      AttributeDefinitions:   
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      OnDemandThroughput:
+        MaxReadRequestUnits: 5
+        MaxWriteRequestUnits: 5
+
+#------------------API--------------------#
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: dalvacation
+      Description: API Gateway for dalvacationtest
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  ApiGatewayResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: 'auth'
+    DependsOn: ApiGateway
+  
+#-----------------/auth/login--------------------#
+  ApiGatewayLoginResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !Ref ApiGatewayResource
+      PathPart: 'login'
+    DependsOn: ApiGatewayResource
+
+  ApiGatewayLoginCors:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      ResourceId: !Ref ApiGatewayLoginResource
+      RestApiId: !Ref ApiGateway
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters: 
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: ApiGatewayLoginResource
+
+  ApiGatewayLoginGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      ResourceId: !Ref ApiGatewayLoginResource
+      RestApiId: !Ref ApiGateway
+      RequestParameters:
+        method.request.querystring.email: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetUserFunction.Arn}/invocations
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: GetUserFunction
+
+  ApiGatewayLoginPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId: !Ref ApiGatewayLoginResource
+      RestApiId: !Ref ApiGateway
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CheckAnswerFunction.Arn}/invocations
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: $input.json('$')
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters: 
+            method.response.header.Access-Control-Allow-Origin: true
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: CheckAnswerFunction 
+#----------------/auth/login/secque----------------#
+  ApiGatewaySecQueResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !Ref ApiGatewayLoginResource
+      PathPart: 'secque'
+    DependsOn: ApiGatewayLoginResource
+
+  ApiGatewayLoginSecQueCors:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      ResourceId: !Ref ApiGatewaySecQueResource
+      RestApiId: !Ref ApiGateway
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters: 
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: ApiGatewaySecQueResource
+
+  ApiGatewayLoginSecQueGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      ResourceId: !Ref ApiGatewaySecQueResource
+      RestApiId: !Ref ApiGateway
+      RequestParameters:
+        method.request.querystring.id: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetOneSecQueFunction.Arn}/invocations
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: GetOneSecQueFunction
+#------------------/auth/signup--------------------#
+  ApiGatewaySignupResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+        RestApiId: !Ref ApiGateway
+        ParentId: !Ref ApiGatewayResource
+        PathPart: 'signup'
+    DependsOn: ApiGatewayResource
+
+  ApiGatewaySignUpCors:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      ResourceId: !Ref ApiGatewaySignupResource
+      RestApiId: !Ref ApiGateway
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters: 
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: ApiGatewaySignupResource
+
+  ApiGatewaySignUpPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId: !Ref ApiGatewaySignupResource
+      RestApiId: !Ref ApiGateway
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AddUserFunction.Arn}/invocations
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: $input.json('$')
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters: 
+            method.response.header.Access-Control-Allow-Origin: true
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: AddUserFunction
+#------------------/auth/signup/secque--------------------#
+
+  ApiGatewaySignupSecQueResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+        RestApiId: !Ref ApiGateway
+        ParentId: !Ref ApiGatewaySignupResource
+        PathPart: 'secque'
+    DependsOn: ApiGatewaySignupResource
+    
+  ApiGatewaySiginSecQueCors:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      ResourceId: !Ref ApiGatewaySignupSecQueResource
+      RestApiId: !Ref ApiGateway
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates:
+          application/json: |
+            {
+              "statusCode": 200
+            }      
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters: 
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: ApiGatewaySignupSecQueResource
+
+  ApiGatewaySignupSecQueGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      ResourceId: !Ref ApiGatewaySignupSecQueResource
+      RestApiId: !Ref ApiGateway
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetSecqueFunction.Arn}/invocations
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: |
+
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: GetSecqueFunction
+
+  ApiGatewaySignUpSecQuePostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId: !Ref ApiGatewaySignupSecQueResource
+      RestApiId: !Ref ApiGateway
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PostAnswerFunction.Arn}/invocations
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: $input.json('$')
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters: 
+            method.response.header.Access-Control-Allow-Origin: true
+          ResponseModels:
+            application/json: "Empty"
+    DependsOn: PostAnswerFunction 
+
+#------------------Invoke Lambda Permission---------------#
+
+  LambdaPermissionAddUser:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt AddUserFunction.Arn
+      Principal: apigateway.amazonaws.com
+
+  LambdaPermissionGetUser:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt GetUserFunction.Arn
+      Principal: apigateway.amazonaws.com
+
+  LambdaPermissionGetSecQue:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt GetSecqueFunction.Arn
+      Principal: apigateway.amazonaws.com
+
+  LambdaPermissionGetOneSecQue:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt GetOneSecQueFunction.Arn
+      Principal: apigateway.amazonaws.com
+  
+  LambdaPermissionCheckAnswer:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt CheckAnswerFunction.Arn
+      Principal: apigateway.amazonaws.com
+      
+#------------------Deployment-----------------------------#
+
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref ApiGateway
+    DependsOn: ApiGatewayLoginPostMethod
+
+  ApiGatewayStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref ApiGatewayDeployment
+      RestApiId: !Ref ApiGateway
+      StageName: test
+    DependsOn: ApiGatewayDeployment
+
+
+Outputs:
+  ApiUrl:
+    Description: "The URL of the API"
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/test/auth/login"

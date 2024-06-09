@@ -1,0 +1,14 @@
+  steps:
+  # Deploy docker image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+    - 'run'
+    - 'deploy'
+    - 'serverless-frontend'
+    - '--image'
+    - '${_IMAGE_NAME}'
+    - '--region'
+    - 'us-central1'
+    - '--port'
+    - '443'

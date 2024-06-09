@@ -1,0 +1,19 @@
+resources:
+  - name: customer-queries
+    type: pubsub.v1.topic
+    properties:
+      topic: customer-queries
+
+  - name: handle-customer-queries-lambda
+    type: pubsub.v1.subscription
+    properties:
+      subscription: handle-customer-queries-lambda
+      topic: $(ref.customer-queries.name)
+      pushConfig:
+        pushEndpoint: https://yzoxyckcb4.execute-api.us-east-1.amazonaws.com/handle-customer-query
+        attributes:
+          x-goog-version: 'v1'
+      ackDeadlineSeconds: 10
+      retainAckedMessages: true
+      labels:
+        unwrap: 'true'

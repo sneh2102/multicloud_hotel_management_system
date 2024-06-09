@@ -1,0 +1,12 @@
+resources:
+  - name:  post-customer-query
+    type: gcp-types/cloudfunctions-v1:projects.locations.functions
+    properties:
+      parent: projects/serverless-426912/locations/us-central1
+      function:  post_customer_query
+      entryPoint: post_customer_queries
+      runtime: nodejs18
+      httpsTrigger: {}
+      sourceArchiveUrl: gs://post_customer_query_source_code/code.zip
+      availableMemoryMb: 256
+      timeout: 60s  
